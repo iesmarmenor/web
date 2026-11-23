@@ -1,5 +1,22 @@
 (() => {
   const script = document.currentScript, api = script?.dataset.api;
+  const iframeSource = function webIframeSource(value) {
+	const text = String(value ?? "").trim();
+	if (!text || text.length > 4e3 || /[\u0000-\u0020\u007f\\]/.test(text)) return null;
+	try {
+		const url = new URL(text);
+		return url.protocol === "https:" && !url.username && !url.password ? url.href : null;
+	} catch {
+		return null;
+	}
+};
+  const iframeSandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
+  const appendIframe = (container, item) => {
+    const src = item.kind === 'iframe' ? iframeSource(item.iframeUrl) : null;
+    if (!src) return;
+    const frame = document.createElement('iframe'); frame.src = src; frame.title = item.title; frame.className = 'web-iframe'; frame.width = '100%'; frame.height = '720'; frame.loading = 'lazy'; frame.sandbox = iframeSandbox; frame.referrerPolicy = 'no-referrer'; frame.allowFullscreen = true;
+    const p = document.createElement('p'), link = document.createElement('a'); link.href = src; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Abrir ' + item.title + ' en una nueva pestaña'; p.append(link); container.append(frame, p);
+  };
   const visible = x => (!x.startsAt || Date.parse(x.startsAt) <= Date.now()) && (!x.expiresAt || Date.parse(x.expiresAt) > Date.now());
   const toggles = document.querySelectorAll('.burger,.web-mobile-toggle');
   toggles.forEach(button => button.addEventListener('click', () => {
@@ -23,12 +40,13 @@
     for (const block of document.querySelectorAll('[data-web-feed]')) {
       const label = block.querySelector('h2')?.textContent || 'Actualidad';
       block.replaceChildren(); const heading = document.createElement('h2'); heading.textContent = label; block.append(heading);
-      for (const item of items.filter(x => x.kind === block.dataset.webFeed && visible(x))) {
+      for (const item of items.filter(x => (x.kind === block.dataset.webFeed || block.dataset.webFeed === 'news' && x.kind === 'iframe') && visible(x))) {
         const article = document.createElement('article'), title = document.createElement('h3'), summary = document.createElement('p');
         title.textContent = item.title; summary.textContent = item.summary; article.append(title, summary);
         if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = item.title; image.loading = 'lazy'; article.append(image); }
         if (item.startsAt) { const time = document.createElement('time'); time.dateTime = item.startsAt; time.textContent = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(new Date(item.startsAt)); article.append(time); }
         if (item.body) { const body = document.createElement('div'); body.innerHTML = item.body; article.append(body); }
+        appendIframe(article, item);
         if (item.url) { const link = document.createElement('a'); link.href = item.url; link.textContent = 'Consultar ' + item.title; article.append(link); }
         block.append(article);
       }
@@ -47,6 +65,7 @@
       if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = item.title; container.append(image); }
       if (item.body) { const body = document.createElement('div'); body.innerHTML = item.body; container.append(body); }
       if (item.startsAt) { const time = document.createElement('time'); time.dateTime = item.startsAt; time.textContent = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(new Date(item.startsAt)); container.append(time); }
+      appendIframe(container, item);
       if (item.url) { const link = document.createElement('a'); link.href = item.url; link.textContent = 'Consultar ' + item.title; container.append(link); }
     }).catch(() => {});
   }
