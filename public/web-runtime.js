@@ -1,12 +1,12 @@
 (() => {
   const script = document.currentScript, api = script?.dataset.api;
   const socialShareUrl = function webSocialShareUrl(network, url, title) {
-	const address = encodeURIComponent(url), text = encodeURIComponent(title);
-	if (network === "facebook") return `https://www.facebook.com/sharer/sharer.php?u=${address}`;
-	if (network === "x") return `https://x.com/intent/tweet?url=${address}&text=${text}`;
-	if (network === "telegram") return `https://t.me/share/url?url=${address}&text=${text}`;
-	if (network === "whatsapp") return `https://wa.me/?text=${encodeURIComponent(title ? title + "\n" + url : url)}`;
-	return "";
+  const address = encodeURIComponent(url), text = encodeURIComponent(title);
+  if (network === "facebook") return `https://www.facebook.com/sharer/sharer.php?u=${address}`;
+  if (network === "x") return `https://x.com/intent/tweet?url=${address}&text=${text}`;
+  if (network === "telegram") return `https://t.me/share/url?url=${address}&text=${text}`;
+  if (network === "whatsapp") return `https://wa.me/?text=${encodeURIComponent(title ? title + "\n" + url : url)}`;
+  return "";
 };
   const shareTemplate = document.querySelector('[data-share-current]');
   const shareData = block => ({ title: block.dataset.shareTitle || document.title, url: block.dataset.shareItem ? new URL('contenido.html?id=' + encodeURIComponent(block.dataset.shareItem), script.src).href : location.href.split('#')[0] });
@@ -42,14 +42,14 @@
   });
   refreshSharing();
   const iframeSource = function webIframeSource(value) {
-	const text = String(value ?? "").trim();
-	if (!text || text.length > 4e3 || /[\u0000-\u0020\u007f\\]/.test(text)) return null;
-	try {
-		const url = new URL(text);
-		return url.protocol === "https:" && !url.username && !url.password ? url.href : null;
-	} catch {
-		return null;
-	}
+  const text = String(value ?? "").trim();
+  if (!text || text.length > 4e3 || /[\u0000-\u0020\u007f\\]/.test(text)) return null;
+  try {
+    const url = new URL(text);
+    return url.protocol === "https:" && !url.username && !url.password ? url.href : null;
+  } catch {
+    return null;
+  }
 };
   const iframeSandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
   const appendIframe = (container, item) => {
@@ -60,42 +60,23 @@
   };
   const visible = x => (!x.startsAt || Date.parse(x.startsAt) <= Date.now()) && (!x.expiresAt || Date.parse(x.expiresAt) > Date.now());
   const contentDate = function webContentDate(content) {
-	const value = content.startsAt || content.publishedAt;
-	if (!value) return null;
-	const date = new Date(value);
-	if (!Number.isFinite(date.getTime())) return null;
-	const parts = new Intl.DateTimeFormat("es-ES", {
-		day: "2-digit",
-		month: "short",
-		year: "numeric",
-		timeZone: "Europe/Madrid"
-	}).formatToParts(date);
-	const part = (type) => parts.find((value) => value.type === type)?.value ?? "";
-	return {
-		dateTime: date.toISOString(),
-		label: `${part("day")} ${part("month").replaceAll(".", "").toLocaleUpperCase("es")} ${part("year")}`
-	};
+  const value = content.startsAt || content.publishedAt;
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric", timeZone: "Europe/Madrid" }).formatToParts(date);
+  const part = (type) => parts.find((value2) => value2.type === type)?.value ?? "";
+  return { dateTime: date.toISOString(), label: `${part("day")} ${part("month").replaceAll(".", "").toLocaleUpperCase("es")} ${part("year")}` };
 };
   const appendNewsDate = (container, item) => {
     const date = contentDate(item); if (!date) return;
     const time = document.createElement('time'); time.dateTime = date.dateTime; time.textContent = date.label; container.append(time);
   };
   const tagStyle = function webContentTagStyle(id) {
-	const colors = [
-		"#be185d",
-		"#6d28d9",
-		"#0369a1",
-		"#047857",
-		"#b45309",
-		"#4338ca",
-		"#0e7490",
-		"#b91c1c",
-		"#a21caf",
-		"#4d7c0f"
-	];
-	let hash = 0;
-	for (const char of id) hash = Math.imul(hash, 31) + char.charCodeAt(0) >>> 0;
-	return "--web-tag-color:" + colors[hash % colors.length];
+  const colors = ["#be185d", "#6d28d9", "#0369a1", "#047857", "#b45309", "#4338ca", "#0e7490", "#b91c1c", "#a21caf", "#4d7c0f"];
+  let hash = 0;
+  for (const char of id) hash = Math.imul(hash, 31) + char.charCodeAt(0) >>> 0;
+  return "--web-tag-color:" + colors[hash % colors.length];
 };
   const tagFromUrl = new URLSearchParams(location.search).get('tagId') || '';
   const feedControllers = new Map();
@@ -238,7 +219,7 @@
           if (item.body) { const body = document.createElement('div'); body.innerHTML = item.body; content.append(body); }
           if (item.url) { const link = document.createElement('a'); link.href = item.url; link.textContent = 'Consultar ' + item.title; content.append(link); }
         }
-        appendSharing(content, item);
+        if (!['news', 'iframe'].includes(item.kind)) appendSharing(content, item);
         block.append(article);
       }
       if (!records.length) { const empty = document.createElement('p'); empty.setAttribute('role', 'status'); empty.textContent = 'No hay publicaciones vigentes.'; block.append(empty); }
