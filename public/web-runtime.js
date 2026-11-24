@@ -5,6 +5,7 @@
 	if (network === "facebook") return `https://www.facebook.com/sharer/sharer.php?u=${address}`;
 	if (network === "x") return `https://x.com/intent/tweet?url=${address}&text=${text}`;
 	if (network === "telegram") return `https://t.me/share/url?url=${address}&text=${text}`;
+	if (network === "whatsapp") return `https://wa.me/?text=${encodeURIComponent(title ? title + "\n" + url : url)}`;
 	return "";
 };
   const shareTemplate = document.querySelector('[data-share-current]');
@@ -58,36 +59,119 @@
     const p = document.createElement('p'), link = document.createElement('a'); link.href = src; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Abrir ' + item.title + ' en una nueva pestaña'; p.append(link); container.append(frame, p);
   };
   const visible = x => (!x.startsAt || Date.parse(x.startsAt) <= Date.now()) && (!x.expiresAt || Date.parse(x.expiresAt) > Date.now());
+  const tagStyle = function webContentTagStyle(id) {
+	const colors = [
+		"#be185d",
+		"#6d28d9",
+		"#0369a1",
+		"#047857",
+		"#b45309",
+		"#4338ca",
+		"#0e7490",
+		"#b91c1c",
+		"#a21caf",
+		"#4d7c0f"
+	];
+	let hash = 0;
+	for (const char of id) hash = Math.imul(hash, 31) + char.charCodeAt(0) >>> 0;
+	return "--web-tag-color:" + colors[hash % colors.length];
+};
+  const tagFromUrl = new URLSearchParams(location.search).get('tagId') || '';
+  const feedControllers = new Map();
+  const matchesKinds = (kind, kinds) => kinds.includes(kind) || kind === 'iframe' && kinds.includes('news');
+  const tagLink = (tag, kind = 'news', count) => {
+    const link = document.createElement('a'); link.className = 'web-tag-chip'; link.style.cssText = tagStyle(tag.id); link.dataset.webTag = tag.id; link.textContent = tag.name;
+    const url = new URL((kind === 'notice' ? script.dataset.tagNotice : script.dataset.tagNews) || 'etiquetas.html', script.src); if (tag.id) url.searchParams.set('tagId', tag.id); link.href = url.href;
+    if (count !== undefined) { const badge = document.createElement('small'); badge.textContent = count; link.append(' ', badge); }
+    return link;
+  };
+  const syncTagCloud = (block, selected) => {
+    const kinds = block.dataset.webFeed.split(/\s+/);
+    for (const cloud of document.querySelectorAll('[data-web-tag-cloud]')) {
+      if (!(cloud.dataset.webTagCloud || 'news').split(/\s+/).some(kind => matchesKinds(kind, kinds))) continue;
+      for (const link of cloud.querySelectorAll('[data-web-tag]')) link.setAttribute('aria-current', String(link.dataset.webTag === selected));
+    }
+  };
   const appendTags = (container, item) => {
     if (!item.tags?.length) return;
     const list = document.createElement('ul'); list.className = 'web-content-tags'; list.setAttribute('aria-label', 'Etiquetas');
-    for (const tag of item.tags) { const li = document.createElement('li'); li.textContent = tag.name; list.append(li); }
+    for (const tag of item.tags) { const li = document.createElement('li'); li.append(tagLink(tag, item.kind)); list.append(li); }
     container.append(list);
   };
-  const wireTagFilter = (block, selected = '') => {
-    const select = block.querySelector('[data-web-tag-filter]'); if (!select) return;
-    if ([...select.options].some(option => option.value === selected)) select.value = selected;
-    const empty = document.createElement('p'); empty.setAttribute('role', 'status'); empty.textContent = 'No hay noticias o avisos con esta etiqueta.'; block.append(empty);
+  const wireFeedControls = (block, selected = tagFromUrl, currentPage = 1) => {
+    const select = block.querySelector('[data-web-tag-filter]');
+    if (select && [...select.options].some(option => option.value === selected)) select.value = selected;
+    const paginated = block.dataset.webFeed.split(/\s+/).some(kind => ['news', 'notice', 'iframe'].includes(kind));
+    if (!select && !paginated) return;
+    const articles = [...block.querySelectorAll(':scope > article')];
+    const empty = document.createElement('p'); empty.setAttribute('role', 'status'); empty.textContent = 'No hay noticias o avisos con esta etiqueta.'; empty.hidden = true;
+    if (select) block.append(empty);
+    const nav = document.createElement('nav'), previous = document.createElement('button'), next = document.createElement('button'), status = document.createElement('span');
+    nav.className = 'web-feed-pagination'; nav.setAttribute('aria-label', 'Paginación de noticias y avisos');
+    previous.type = next.type = 'button'; previous.textContent = 'Anterior'; next.textContent = 'Siguiente';
+    status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+    nav.append(previous, status, next); if (paginated) block.append(nav);
     const apply = () => {
-      let shown = 0;
-      for (const article of block.querySelectorAll(':scope > article')) {
+      const matching = articles.filter(article => {
         const ids = (article.dataset.webTags || '').split(',').filter(Boolean);
-        const show = !select.value || (select.value === 'untagged' ? !ids.length : ids.includes(select.value));
-        article.hidden = !show; article.classList.toggle('web-content-tag-hidden', !show); if (show) shown++;
+        return !select?.value || (select.value === 'untagged' ? !ids.length : ids.includes(select.value));
+      });
+      const pageSize = paginated ? 10 : Math.max(1, matching.length), pages = Math.max(1, Math.ceil(matching.length / pageSize));
+      currentPage = Math.max(1, Math.min(currentPage, pages)); block.dataset.webPage = String(currentPage);
+      const shown = new Set(matching.slice((currentPage - 1) * pageSize, currentPage * pageSize));
+      for (const article of articles) {
+        const show = shown.has(article); article.hidden = !show; article.classList.toggle('web-content-tag-hidden', !show);
       }
-      empty.hidden = shown > 0;
+      empty.hidden = matching.length > 0;
+      previous.disabled = currentPage === 1; next.disabled = currentPage === pages;
+      nav.hidden = matching.length <= pageSize;
+      status.textContent = 'Página ' + currentPage + ' de ' + pages + ' · ' + matching.length + ' publicaciones';
+      syncTagCloud(block, select?.value || '');
     };
-    select.addEventListener('change', apply); apply();
+    select?.addEventListener('change', () => { currentPage = 1; apply(); });
+    previous.addEventListener('click', () => { currentPage--; apply(); });
+    next.addEventListener('click', () => { currentPage++; apply(); });
+    feedControllers.set(block, value => {
+      if (!select || ![...select.options].some(option => option.value === value)) return false;
+      select.value = value; currentPage = 1; apply(); return true;
+    });
+    apply();
   };
-  const appendTagFilter = (block, records) => {
-    const tags = new Map(records.flatMap(item => (item.tags || []).map(tag => [tag.id, tag])));
+  const appendTagFilter = (block, records, catalog = []) => {
+    if (!block.dataset.webFeed.split(/\s+/).some(kind => ['news', 'notice', 'iframe'].includes(kind))) return;
+    const tags = new Map([...catalog, ...records.flatMap(item => item.tags || [])].map(tag => [tag.id, tag]));
     if (!tags.size) return;
     const label = document.createElement('label'), select = document.createElement('select'); label.className = 'web-tag-filter'; label.append('Filtrar por etiqueta '); select.dataset.webTagFilter = '';
     select.add(new Option('Todas las etiquetas', '')); select.add(new Option('Sin etiquetas', 'untagged'));
     for (const tag of [...tags.values()].sort((a,b) => a.name.localeCompare(b.name, 'es'))) select.add(new Option(tag.name, tag.id));
     label.append(select); block.append(label);
   };
-  document.querySelectorAll('[data-web-feed]').forEach(block => wireTagFilter(block));
+  const refreshTagClouds = (items, catalog) => {
+    for (const cloud of document.querySelectorAll('[data-web-tag-cloud]')) {
+      const kinds = (cloud.dataset.webTagCloud || 'news').split(/\s+/);
+      const records = items.filter(item => matchesKinds(item.kind, kinds) && visible(item));
+      const tags = new Map([...catalog, ...records.flatMap(item => item.tags || [])].map(tag => [tag.id, tag]));
+      const heading = document.createElement('h3'); heading.textContent = 'Etiquetas'; cloud.replaceChildren(heading); cloud.classList.add('web-tag-cloud');
+      if (!tags.size) { const empty = document.createElement('p'); empty.textContent = 'No hay etiquetas disponibles.'; cloud.append(empty); continue; }
+      const links = document.createElement('div'); links.className = 'web-tag-cloud-links';
+      const kind = kinds.includes('news') ? 'news' : 'notice';
+      const all = tagLink({ id: '', name: 'Todas' }, kind); all.classList.add('web-tag-neutral'); all.style.removeProperty('--web-tag-color'); links.append(all);
+      for (const tag of [...tags.values()].sort((a,b) => a.name.localeCompare(b.name, 'es'))) links.append(tagLink(tag, kind, records.filter(item => item.tags?.some(t => t.id === tag.id)).length));
+      cloud.append(links);
+    }
+  };
+  document.addEventListener('click', event => {
+    const link = event.target.closest('a[data-web-tag]'); if (!link || event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const scope = link.closest('[data-web-tag-cloud],[data-web-feed]'); if (!scope) return;
+    const kinds = (scope.dataset.webTagCloud || scope.dataset.webFeed || 'news').split(/\s+/);
+    let applied = false;
+    for (const [block, filter] of feedControllers) {
+      if (scope.hasAttribute('data-web-feed') ? block !== scope : !block.dataset.webFeed.split(/\s+/).some(kind => matchesKinds(kind, kinds))) continue;
+      if (filter(link.dataset.webTag)) applied = true;
+    }
+    if (applied) event.preventDefault();
+  });
+  document.querySelectorAll('[data-web-feed]').forEach(block => wireFeedControls(block));
   const toggles = document.querySelectorAll('.burger,.web-mobile-toggle');
   toggles.forEach(button => button.addEventListener('click', () => {
     const nav = document.getElementById(button.getAttribute('aria-controls'));
@@ -106,27 +190,34 @@
   });
   document.querySelectorAll('.search-open').forEach(button => button.addEventListener('click', () => { location.href = new URL('buscar.html', script.src).href; }));
   const live = api ? fetch(api, { credentials: 'omit' }).then(response => { if (!response.ok) throw Error(); return response.json(); }) : Promise.resolve({ items: [] });
-  live.then(({ items }) => {
+  live.then(({ items, tags = [] }) => {
+    refreshTagClouds(items, tags);
     for (const block of document.querySelectorAll('[data-web-feed]')) {
-      const label = block.querySelector('h2')?.textContent || 'Actualidad';
+      const heading = block.querySelector(':scope > h2, :scope > .section-panel__head, :scope > .home-notices__label');
       const selectedTag = block.querySelector('[data-web-tag-filter]')?.value || '';
-      const records = items.filter(x => (x.kind === block.dataset.webFeed || block.dataset.webFeed === 'news' && x.kind === 'iframe') && visible(x));
-      block.replaceChildren(); const heading = document.createElement('h2'); heading.textContent = label; block.append(heading);
-      appendTagFilter(block, records);
+      const kinds = block.dataset.webFeed.split(/\s+/);
+      const records = items.filter(x => (kinds.includes(x.kind) || kinds.includes('news') && x.kind === 'iframe') && visible(x));
+      block.replaceChildren();
+      if (heading) block.append(heading);
+      else { const title = document.createElement('h2'); title.textContent = 'Actualidad'; block.append(title); }
+      appendTagFilter(block, records, tags);
       for (const item of records) {
         const article = document.createElement('article'), title = document.createElement('h3'), summary = document.createElement('p');
+        const meta = document.createElement('div'), content = document.createElement('div'); article.className = 'web-news-card'; meta.className = 'web-news-meta'; content.className = 'web-news-body'; article.append(meta, content);
         article.dataset.webTags = (item.tags || []).map(tag => tag.id).join(',');
-        title.textContent = item.title; summary.textContent = item.summary; article.append(title, summary);
-        appendTags(article, item);
-        if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = item.title; image.loading = 'lazy'; article.append(image); }
-        if (item.startsAt) { const time = document.createElement('time'); time.dateTime = item.startsAt; time.textContent = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(new Date(item.startsAt)); article.append(time); }
-        if (item.body) { const body = document.createElement('div'); body.innerHTML = item.body; article.append(body); }
-        appendIframe(article, item);
-        if (item.url) { const link = document.createElement('a'); link.href = item.url; link.textContent = 'Consultar ' + item.title; article.append(link); }
-        appendSharing(article, item);
+        const link = document.createElement('a'); link.textContent = item.title; link.href = new URL('contenido.html?id=' + encodeURIComponent(item.id), script.src).href; title.append(link);
+        summary.textContent = item.summary; content.append(title, summary);
+        if (item.startsAt) { const time = document.createElement('time'); time.dateTime = item.startsAt; time.textContent = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(new Date(item.startsAt)); meta.append(time); }
+        appendTags(meta, item);
+        if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = item.title; image.loading = 'lazy'; content.append(image); }
+        if (item.body) { const body = document.createElement('div'); body.innerHTML = item.body; content.append(body); }
+        appendIframe(content, item);
+        if (item.url) { const link = document.createElement('a'); link.href = item.url; link.textContent = 'Consultar ' + item.title; content.append(link); }
+        appendSharing(content, item);
         block.append(article);
       }
-      wireTagFilter(block, selectedTag);
+      if (!records.length) { const empty = document.createElement('p'); empty.setAttribute('role', 'status'); empty.textContent = 'No hay publicaciones vigentes.'; block.append(empty); }
+      wireFeedControls(block, selectedTag, Number(block.dataset.webPage) || 1);
       refreshSharing(block);
     }
   }).catch(() => {});
