@@ -59,6 +59,27 @@
     const p = document.createElement('p'), link = document.createElement('a'); link.href = src; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Abrir ' + item.title + ' en una nueva pestaña'; p.append(link); container.append(frame, p);
   };
   const visible = x => (!x.startsAt || Date.parse(x.startsAt) <= Date.now()) && (!x.expiresAt || Date.parse(x.expiresAt) > Date.now());
+  const contentDate = function webContentDate(content) {
+	const value = content.startsAt || content.publishedAt;
+	if (!value) return null;
+	const date = new Date(value);
+	if (!Number.isFinite(date.getTime())) return null;
+	const parts = new Intl.DateTimeFormat("es-ES", {
+		day: "2-digit",
+		month: "short",
+		year: "numeric",
+		timeZone: "Europe/Madrid"
+	}).formatToParts(date);
+	const part = (type) => parts.find((value) => value.type === type)?.value ?? "";
+	return {
+		dateTime: date.toISOString(),
+		label: `${part("day")} ${part("month").replaceAll(".", "").toLocaleUpperCase("es")} ${part("year")}`
+	};
+};
+  const appendNewsDate = (container, item) => {
+    const date = contentDate(item); if (!date) return;
+    const time = document.createElement('time'); time.dateTime = date.dateTime; time.textContent = date.label; container.append(time);
+  };
   const tagStyle = function webContentTagStyle(id) {
 	const colors = [
 		"#be185d",
@@ -207,12 +228,16 @@
         article.dataset.webTags = (item.tags || []).map(tag => tag.id).join(',');
         const link = document.createElement('a'); link.textContent = item.title; link.href = new URL('contenido.html?id=' + encodeURIComponent(item.id), script.src).href; title.append(link);
         summary.textContent = item.summary; content.append(title, summary);
-        if (item.startsAt) { const time = document.createElement('time'); time.dateTime = item.startsAt; time.textContent = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(new Date(item.startsAt)); meta.append(time); }
+        if (['news', 'notice', 'iframe'].includes(item.kind)) appendNewsDate(meta, item);
+        else if (item.startsAt) { const time = document.createElement('time'); time.dateTime = item.startsAt; time.textContent = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(new Date(item.startsAt)); meta.append(time); }
         appendTags(meta, item);
-        if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = item.title; image.loading = 'lazy'; content.append(image); }
-        if (item.body) { const body = document.createElement('div'); body.innerHTML = item.body; content.append(body); }
-        appendIframe(content, item);
-        if (item.url) { const link = document.createElement('a'); link.href = item.url; link.textContent = 'Consultar ' + item.title; content.append(link); }
+        if (['news', 'notice', 'iframe'].includes(item.kind)) {
+          const p = document.createElement('p'), more = document.createElement('a'); more.className = 'web-news-read-more'; more.href = link.href; more.textContent = 'Leer más'; more.setAttribute('aria-label', 'Leer más: ' + item.title); p.append(more); content.append(p);
+        } else {
+          if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = item.title; image.loading = 'lazy'; content.append(image); }
+          if (item.body) { const body = document.createElement('div'); body.innerHTML = item.body; content.append(body); }
+          if (item.url) { const link = document.createElement('a'); link.href = item.url; link.textContent = 'Consultar ' + item.title; content.append(link); }
+        }
         appendSharing(content, item);
         block.append(article);
       }
@@ -230,14 +255,21 @@
       const item = items.find(x => x.id === id && visible(x));
       if (!item) { container.replaceChildren(); const heading = document.createElement('h1'); heading.textContent = 'Contenido no disponible'; container.append(heading); return; }
       container.replaceChildren(); const heading = document.createElement('h1'), summary = document.createElement('p');
-      heading.textContent = item.title; summary.textContent = item.summary; container.append(heading, summary);
+      let content = container, meta = container;
+      const dated = ['news', 'notice', 'iframe'].includes(item.kind);
+      if (dated) {
+        const article = document.createElement('article'); article.className = 'web-news-card web-news-detail';
+        meta = document.createElement('div'); meta.className = 'web-news-meta'; content = document.createElement('div'); content.className = 'web-news-body';
+        article.append(meta, content); container.append(article); appendNewsDate(meta, item);
+      }
+      heading.textContent = item.title; summary.textContent = item.summary; content.append(heading, summary);
       const pageShare = document.querySelector('[data-share-current]'); if (pageShare) pageShare.dataset.shareTitle = item.title;
-      appendTags(container, item);
-      if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = item.title; container.append(image); }
-      if (item.body) { const body = document.createElement('div'); body.innerHTML = item.body; container.append(body); }
-      if (item.startsAt) { const time = document.createElement('time'); time.dateTime = item.startsAt; time.textContent = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(new Date(item.startsAt)); container.append(time); }
-      appendIframe(container, item);
-      if (item.url) { const link = document.createElement('a'); link.href = item.url; link.textContent = 'Consultar ' + item.title; container.append(link); }
+      appendTags(meta, item);
+      if (item.image) { const image = document.createElement('img'); image.src = item.image; image.alt = item.title; content.append(image); }
+      if (item.body) { const body = document.createElement('div'); body.innerHTML = item.body; content.append(body); }
+      if (!dated && item.startsAt) { const time = document.createElement('time'); time.dateTime = item.startsAt; time.textContent = new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(new Date(item.startsAt)); content.append(time); }
+      appendIframe(content, item);
+      if (item.url) { const link = document.createElement('a'); link.href = item.url; link.textContent = 'Consultar ' + item.title; content.append(link); }
       refreshSharing();
     }).catch(() => {});
   }
